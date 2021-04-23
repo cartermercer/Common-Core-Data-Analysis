@@ -1,0 +1,277 @@
+---
+title: "Statistical Analysis of Common Core Data"
+author: "Conor O'Regan, Jon Olson, Carter Mercer"
+date: "12/3/2020"
+output: html_document
+---
+**DS 803: Fundamentals of Statistical Analysis**
+```{r setup, include=FALSE}
+library("install.load")
+install_load <- function(pack){
+  new_pack_load <- pack[!(pack %in% installed.packages()[,"Package"])]
+  if (length(new_pack_load))
+    install.packages(new_pack_load, dependencies = TRUE)
+  sapply(pack, require, character.only = TRUE)
+}
+
+package_load <- c("ggplot2", "dplyr", "tidyverse", "NLP", "tm", "stringr", "jsonlite", "DT", "lubridate", "tidytext", "wordcloud", "igraph", "ggraph", "widyr", "ggmap", "leaflet", "scales", "textcat", "textdata", "magrittr", "lexicon")
+
+install_load(package_load)
+
+data = read.csv("~/Box/DS 803 and 805 Final Project/ELSI Data/CompleteELSIClean.csv")
+```
+
+For this project, our group analyzed a combination of race and ethnicity data from the National Center for Education Statistics (NCES) which provides the Common Core of Data (CCD). and educational funding from various governing entities. The datasets are joined using the name of the school district and includes the number of students of each ethnicity (White, Black, Hispanic, etc.) in each respective district, as well as the dollar amounts of funding from different sources (federal, state, local, and miscellaneous). Based purely on initial assumption, we expected to see some correlation between the proportion of certain races and the amount of funding those districts received. However, while cleaning and combining the data, we realized that the type of district may also play a role and it might be interesting to include. For example, metropolitan areas may receive more money than rural ones, and that information may skew the results.
+
+The research question we will attempt to answer the following question: Is there a relationship between the amount of funding given to school districts and the concentration of different ethnicities within a given community? While this data is from 2017-2019, in today’s socioeconomic climate these potential relationships could be very interesting to examine. Understanding any connections between the makeup of a community and the allocation of resources it currently receives may help suggest a more efficient way to adequately fund communities and regions that are being neglected.
+
+```{r}
+glimpse(data)
+```
+
+## Sampling the Data
+
+We decided to take a stratified sample of our dataset using the Urban/Central Locale Variable. With this data especially, it is important to try to take a sample that is representative of the entire population. If we had taken a simple random sample, there is a chance it would not include a sufficient number of districts in any given type of community (rural, urban, suburban, etc.). Therefore, our sample, which includes fifty percent of our full dataset, incorporates adequate representation from each type of community.
+
+```{r}
+set.seed(1)
+stratified_sample <- data %>%
+  group_by(UrbanCentricLocale_18_19) %>%
+  sample_frac(0.5) %>%
+  ungroup
+
+table(stratified_sample[, "UrbanCentricLocale_18_19"])
+
+```
+
+```{r include=FALSE}
+stratified_sample[is.na(stratified_sample)] = 0
+```
+
+
+## Exploratory Analysis
+
+This scatter plot shows a positive correlation between the total number of students and the total amount of federal revenue. It is important to note that there is a high concentration of data points towards the origin (0).
+
+```{r message=FALSE}
+ggplot(stratified_sample, aes(TotalStudentsAllGrades, RevenueFederalSources_16_17)) + geom_jitter() + geom_smooth(method="lm") + xlab("Total Students (All Grades)") + ylab("Revenue (Federal Sources 16/17)") + ggtitle("Total Students ~ Federal Funding") + scale_y_continuous(labels = comma) + scale_x_continuous(labels = comma)
+```
+
+# Boxplots
+After realizing the concentration of data points towards the origin (0), we decided to investigate this further with a boxplot analysis. By changing the Y limit of the plot, we can see that although there is a vast distribution of both of these variables, the 1st quartile, mean, and 3rd quartile are all still very close to the origin (0). We can confirm this with the summary() function, which shows the descriptive statistics for the respective variable. Therefore, we can infer that these graphs are heavily skewed to the right by looking at the median and max values.
+
+```{r}
+stu1 <- ggplot(stratified_sample, aes(y=TotalStudentsAllGrades, x=0)) + geom_boxplot()  + scale_y_continuous(labels = comma) + ylab("Total Number of Students") + xlab("No Y Limit")
+stu2 <- ggplot(stratified_sample, aes(y=TotalStudentsAllGrades, x=0)) + geom_boxplot()  + scale_y_continuous(labels = comma)+ coord_cartesian(ylim = c(0,50000))+ ylab("Total Number of Students") + xlab("Y Limit = 50,000")
+stu3 <- ggplot(stratified_sample, aes(y=TotalStudentsAllGrades, x=0)) + geom_boxplot()  + scale_y_continuous(labels = comma)+ coord_cartesian(ylim = c(0,10000))+ ylab("Total Number of Students") + xlab("Y Limit = 10,000")
+
+Federal1 <- ggplot(stratified_sample, aes(y=RevenueFederalSources_16_17, x=0)) + geom_boxplot() + scale_y_continuous(labels = comma)+ ylab("Amount of Federal Funding") + xlab("No Y Limit")
+Federal2 <- ggplot(stratified_sample, aes(y=RevenueFederalSources_16_17, x=0)) + geom_boxplot() + scale_y_continuous(labels = comma)+ coord_cartesian(ylim = c(0,100000000))+ ylab("Amount of Federal Funding") + xlab("Y Limit = 100,000,000")
+Federal3 <- ggplot(stratified_sample, aes(y=RevenueFederalSources_16_17, x=0)) + geom_boxplot() + scale_y_continuous(labels = comma)+ coord_cartesian(ylim = c(0,10000000))+ ylab("Amount of Federal Funding") + xlab("Y Limit = 10,000,000")
+
+library(ggpubr)
+ggarrange(Federal1, Federal2, Federal3 + rremove("x.text"), 
+          ncol = 3, nrow = 1)
+
+summary(stratified_sample$RevenueFederalSources_16_17)
+```
+
+We can use the summary() function to see that the mean amount of federal funding for a given school is ~ \$3.2 million while the maximum is ~ $450 million. This explains the large skew in the data.
+
+```{r}
+ggarrange(stu1, stu2, stu3 + rremove("x.text"),
+          ncol = 3, nrow = 1)
+
+summary(stratified_sample$TotalStudentsAllGrades)
+```
+
+We also used the summary() function to see that the mean number of students in a given school is 3,041 while the max is over 350,000.
+
+# Density Plots
+
+We then plotted the distribution of Total Students, Federal Revenue, as well as each major Ethnicity group using density plots. It is important to note here that the distribution of Ethnicity groups share a common distribution with the exception of White students. We adjusted the scales for each of these plots to account for the more narrow distribution from the origin. If these plots shared the same scale, the data would be much more difficult to interpret and the difference in the different distributions would be much more apparent.
+
+```{r}
+d5 <- ggplot(stratified_sample, aes(TotalStudentsAllGrades)) + geom_density() + coord_cartesian(xlim = c(0,30000)) + xlab("Distribution of Total Students") + scale_x_continuous(labels = comma)+ scale_y_continuous(labels = comma)
+d6 <- ggplot(stratified_sample, aes(RevenueFederalSources_16_17)) + geom_density() + coord_cartesian(xlim = c(0,10000000)) + xlab("Distribution of Federal Revenue") + scale_x_continuous(labels = comma)+ scale_y_continuous(labels = comma)
+
+d1 <- ggplot(stratified_sample, aes(White)) + geom_density() + coord_cartesian(xlim = c(0,25000)) + xlab("Distribution of White Students") + scale_x_continuous(labels = comma)+ scale_y_continuous(labels = comma)
+d2 <- ggplot(stratified_sample, aes(Black)) + geom_density() + coord_cartesian(xlim = c(0,10000)) + xlab("Distribution of Black Students") + scale_x_continuous(labels = comma)+ scale_y_continuous(labels = comma)
+d3 <- ggplot(stratified_sample, aes(Hispanic)) + geom_density() + coord_cartesian(xlim = c(0,15000)) + xlab("Distribution of Hispanic Students") + scale_x_continuous(labels = comma)+ scale_y_continuous(labels = comma)
+d4 <- ggplot(stratified_sample, aes(Asian_AsianPacificIsl)) + geom_density() + coord_cartesian(xlim = c(0,3000)) + xlab("Distribution of Asian/IslandPacific Students") + scale_x_continuous(labels = comma)+ scale_y_continuous(labels = comma)
+
+ggarrange(d5, d6 + rremove("x.text"), 
+          ncol = 2, nrow = 1, align="h")
+
+ggarrange(d1, d2, d3, d4 + rremove("x.text"), 
+          ncol = 2, nrow = 2, align="h")
+```
+
+# Histograms
+
+To get a different perspective on the data, we plotted the same data using histograms rather than a line. This shows the same distributions as the density distribution from before, but uses bins to get a better idea of the count of each occurrence. Again, we adjusted the scales for each of these plots in an effort to prioritize interpretability over scale consistency.
+
+```{r}
+h1<- ggplot(stratified_sample, aes(RevenueFederalSources_16_17)) + geom_histogram(bins=1000) + coord_cartesian(xlim=c(0,10000000)) + scale_x_continuous(labels = comma) + xlab("Amount of Federal Revenue")
+h2 <- ggplot(stratified_sample, aes(TotalStudentsAllGrades)) + geom_histogram(bins=1000) + coord_cartesian(xlim=c(0,10000)) + scale_x_continuous(labels = comma) + xlab("Number of Students")
+h3 <- ggplot(stratified_sample, aes(Black)) + geom_histogram(bins=1000) + coord_cartesian(xlim=c(0,1000)) + scale_x_continuous(labels = comma) + xlab("Number of Black Students")
+h4 <- ggplot(stratified_sample, aes(White)) + geom_histogram(bins=1000) + coord_cartesian(xlim=c(0,5000)) + scale_x_continuous(labels = comma) + xlab("Number of White Students")
+h5 <- ggplot(stratified_sample, aes(Hispanic)) + geom_histogram(bins=1000) + coord_cartesian(xlim=c(0,4000)) + scale_x_continuous(labels = comma) + xlab("Number of Hispanic Students")
+h6 <- ggplot(stratified_sample, aes(Asian_AsianPacificIsl)) + geom_histogram(bins=1000) + coord_cartesian(xlim=c(0,1000)) + scale_x_continuous(labels = comma) + xlab("Number of Asian/Pacific Island Students")
+
+ggarrange(h1, h2, 
+          ncol = 2, nrow = 1, align="h")
+
+ggarrange(h3, h4, h5, h6, 
+          ncol = 2, nrow = 2, align="h")
+```
+
+# Correlation
+
+To finish our exploratory analysis, we decided to run a quick correlation analysis between Federal Revenue and both Total Students and each Ethnicity group. The strongest correlation was between Federal Revenue and Total Students, and the weakest correlations were between Federal Revenue and White Students, and Federal Revenue and Asian/Pacific Islands Students. This will prove true as we create a linear model for each Ethnicity group.
+
+```{r}
+cor(stratified_sample$RevenueFederalSources_16_17, stratified_sample$TotalStudentsAllGrades)
+cor(stratified_sample$RevenueFederalSources_16_17, stratified_sample$Black)
+cor(stratified_sample$RevenueFederalSources_16_17, stratified_sample$White)
+cor(stratified_sample$RevenueFederalSources_16_17, stratified_sample$Hispanic)
+cor(stratified_sample$RevenueFederalSources_16_17, stratified_sample$Asian_AsianPacificIsl)
+```
+
+# Linear Model
+
+Our first linear model is created using the data from the stratified sample we took earlier, namely the variables “RevenueFederalSources_16_17” and “TotalStudentsAllGrades”. Using the summary() function on our linear model, we can see that our p-value for both the intercept and the Total Students are very significant.
+
+```{r}
+linearMod <- lm(RevenueFederalSources_16_17 ~ TotalStudentsAllGrades, data=stratified_sample)  # build linear regression model on full data
+print(linearMod)
+summary(linearMod)
+```
+
+# Train/Test Split
+
+To create training and test datasets, we first set a seed to achieve reproducible results. We created a training dataset by taking a simple random sample of the stratified sample from earlier, with 80% of that data comprising the training data and the remaining 20% comprising the test data. Afterwards, we created a new linear model using just the training data and applied this linear model to the predict() function. This predict() function provides predictions for a specific object (in this case, our linear model).
+
+```{r}
+set.seed(100)  # setting seed to reproduce results of random sampling
+trainingRowIndex <- sample(1:nrow(stratified_sample), 0.8*nrow(stratified_sample))  # row indices for training data
+trainingData <- stratified_sample[trainingRowIndex, ]  # model training data
+testData  <- stratified_sample[-trainingRowIndex, ]   # test data
+lmMod <- lm(RevenueFederalSources_16_17 ~ TotalStudentsAllGrades, data=trainingData)  # build the model
+FedRevenuePred <- predict(lmMod, testData)  # predict revenue
+```
+
+# Plotting Revenue Predictions (Total Number of Students)
+
+```{r message=FALSE}
+ggplot(testData, aes(TotalStudentsAllGrades, FedRevenuePred)) +geom_smooth(method="lm") + xlab("Total Students (All Grades)") + ylab("Revenue (Federal Sources 16/17)") + ggtitle("Total Students ~ Federal Funding") + scale_y_continuous(labels = comma) + scale_x_continuous(labels = comma)
+```
+
+Lastly, we plotted these predictions using a simple line chart. The X-axis of this chart is the Total Number of Students as taken from the test dataset, and the Y-axis of this chart is the Predicted Federal Revenue that was obtained using our linear model. This is the plot that would be used to predict the amount of Federal Revenue obtained by a school based on the Total Number of Students.
+We wanted to obtain these predictive models for each Ethicity rather than just the Total Number of Students. To do this, we applied the same methodology as before with the exception of changing the Y-variable to match a specific Ethnicity rather than Total Number of Students. 
+
+```{r include=FALSE}
+## Building a Linear Model with White Student Population
+
+linearModWhite <- lm(RevenueFederalSources_16_17 ~ White, data=stratified_sample)
+print(linearModWhite)
+summary(linearModWhite)
+
+lmModWhite <- lm(RevenueFederalSources_16_17 ~ TotalStudentsAllGrades, data=trainingData)  # build the model
+FedRevenuePredWhite <- predict(lmModWhite, testData)  # predict revenue
+summary(lmModWhite)
+
+## Building a Linear Model with Black Student Population
+
+linearModBlack <- lm(RevenueFederalSources_16_17 ~ Black, data=stratified_sample)
+print(linearModBlack)
+summary(linearModBlack)
+
+lmModBlack <- lm(RevenueFederalSources_16_17 ~ Black, data=trainingData)  # build the model
+FedRevenuePredBlack <- predict(lmModBlack, testData)  # predict revenue
+summary(lmModBlack)
+
+## Building a Linear Model with Hispanic Student Population
+
+linearModHispanic <- lm(RevenueFederalSources_16_17 ~ Hispanic, data=stratified_sample)
+print(linearModHispanic)
+summary(linearModHispanic)
+
+lmModHispanic <- lm(RevenueFederalSources_16_17 ~ Hispanic, data=trainingData)  # build the model
+FedRevenuePredHispanic <- predict(lmModHispanic, testData)  # predict revenue
+summary(lmModHispanic)
+
+## Building a Linear Model with Asian Student Population
+
+linearModAsian <- lm(RevenueFederalSources_16_17 ~ Asian_AsianPacificIsl, data=stratified_sample)
+print(linearModAsian)
+summary(linearModAsian)
+
+lmModAsian <- lm(RevenueFederalSources_16_17 ~ Asian_AsianPacificIsl, data=trainingData)  # build the model
+FedRevenuePredAsian <- predict(lmModAsian, testData)  # predict revenue
+summary(lmModAsian)
+```
+
+```{r message=FALSE, include=FALSE}
+WhitePlot <- ggplot(testData, aes(White, FedRevenuePredWhite)) + geom_smooth(method="lm") + xlab("White Students") + ylab("Revenue (Federal Sources 16/17)") + coord_cartesian(xlim=c(0,20000), ylim=c(0,400000000)) + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + scale_x_continuous(labels = function(x) format(x, scientific = FALSE))
+
+BlackPlot <- ggplot(testData, aes(Black, FedRevenuePredBlack)) + geom_smooth(method="lm") + xlab("Black Students") + ylab("Revenue (Federal Sources 16/17)") + coord_cartesian(xlim=c(0,20000), ylim=c(0,400000000)) + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + scale_x_continuous(labels = function(x) format(x, scientific = FALSE))
+
+HispanicPlot <- ggplot(testData, aes(Hispanic, FedRevenuePredHispanic)) + geom_smooth(method="lm") + xlab("Hispanic Students") + ylab("Revenue (Federal Sources 16/17)") + coord_cartesian(xlim=c(0,20000), ylim=c(0,400000000)) + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + scale_x_continuous(labels = function(x) format(x, scientific = FALSE))
+
+AsianPlot <- ggplot(testData, aes(Asian_AsianPacificIsl, FedRevenuePredAsian)) + geom_smooth(method="lm") + xlab("Asian Students") + ylab("Revenue (Federal Sources 16/17)") + coord_cartesian(xlim=c(0,20000), ylim=c(0,400000000)) + scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + scale_x_continuous(labels = function(x) format(x, scientific = FALSE))
+```
+
+```{r message=FALSE}
+library(ggpubr)
+ggarrange(WhitePlot, BlackPlot, HispanicPlot, AsianPlot, 
+          ncol = 2, nrow = 2, align="hv")
+```
+
+# Inferential Analysis
+
+# Estimating Parameters Using Method of Moments
+
+```{r}
+x = stratified_sample$TotalStudentsAllGrades
+n = length(stratified_sample$TotalStudentsAllGrades)
+mean_MoM = sum(x)/n
+var_MoM = sum(x^2)/n - (sum(x)/n)^2
+list(Mean = mean_MoM, Variance = var_MoM)
+
+Norm.CI=function(obs, sigma, alpha){
+  n=length(obs)
+  ME=qnorm(1-alpha/2)*sigma/sqrt(n)
+  c(mean(obs)-ME, mean(obs)+ME)
+}
+x = stratified_sample$TotalStudentsAllGrades
+var_MoM = sum(x^2)/n - (sum(x)/n)^2
+Norm.CI(x, sqrt(var_MoM), 0.05)
+
+```
+
+Comparing these population parameters to the true values, we can see that Method of Moments estimation does well in estimating the parameters.
+
+# Confidence Intervals for Mean and Variance of Total Students
+
+```{r}
+Normt.CI=function(x, alpha){
+  n=length(x)
+  df=n-1
+  ME=qt(1-alpha/2, df)*sd(x)/sqrt(n)
+  c(mean(x)-ME, mean(x)+ME)
+  }
+Normt.CI(x = stratified_sample$TotalStudentsAllGrades, 0.05)
+
+Sigma.CI=function(x, alpha){
+  n=length(x)
+  df=n-1
+  var_MoM = sum(x^2)/n - (sum(x)/n)^2
+  c(df*var_MoM/qchisq(1-alpha/2, df), df*var_MoM/qchisq(alpha/2, df))
+}
+Sigma.CI(x = stratified_sample$TotalStudentsAllGrades, 0.05)
+```
+
+# Conclusion
+
+After conducting various exploratory analyses and creating linear models with respect to each ethnicity, we found that the number of Black students, followed closely by the number of Hispanic students, are the most accurate student population predictors of the amount of Federal Revenue for any given school.
