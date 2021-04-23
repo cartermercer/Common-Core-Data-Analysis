@@ -1,0 +1,378 @@
+---
+title: |
+  | Classification Final Project
+  | DS 805: Statistical Learning
+author: |
+  | Carter Mercer, Jon Olson, Conor O'Regan
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library("install.load")
+install_load <- function(pack){
+  new_pack_load <- pack[!(pack %in% installed.packages()[,"Package"])]
+  if (length(new_pack_load))
+    install.packages(new_pack_load, dependencies = TRUE)
+  sapply(pack, require, character.only = TRUE)
+}
+
+package_load <- c("ggplot2", "dplyr", "tidyverse", "NLP", "tm", "stringr", "jsonlite", "DT", "lubridate", "tidytext", "wordcloud", "igraph", "ggraph", "widyr", "ggmap", "leaflet", "scales", "textcat", "textdata", "magrittr", "lexicon", "formatR", "rpart", "rpart.plot", "caret", "Metrics", "ipred", "randomForest", "vip", "magrittr", "ggvis", "class", "MASS", "devtools", "reprtree", "gbm", "e1071", "pROC", "ROCR", "matrixStats", "kableExtra")
+
+install_load(package_load)
+```
+
+## Data
+
+```{r}
+df = read.csv("https://unh.box.com/shared/static/h2e0xzpfifrlc7cmxkw617gfg8g9zt3p.csv")
+glimpse(df)
+attach(df)
+```
+
+##  Exploratory Data Analysis 
+
+#### Check for existence of NA's (missing data)
+
+```{r}
+colSums(is.na(df))
+summary(complete.cases(df)) 
+summary(df)
+```
+
+#### Boxplots
+
+```{r}
+boxplot(df$FallMembership_16_17 ~ df$Size, ylim = c(0,10000))
+boxplot(df$RevenueStateSources_16_17 ~ df$Size, ylim = c(0,46000000))
+boxplot(df$RevenueFederalSources_16_17 ~ df$Size, ylim = c(0,11000000))
+boxplot(df$TotalStudentsAllGrades ~ df$Size, ylim = c(0,8000))
+boxplot(df$Asian_AsianPacificIsl ~ df$Size, ylim = c(0,300))
+boxplot(df$Hispanic ~ df$Size, ylim = c(0,2000))
+boxplot(df$Black ~ df$Size, ylim = c(0,1000))
+boxplot(df$White ~ df$Size, ylim = c(0,3000))
+```
+
+#### Bar Charts
+
+```{r}
+totals = data.frame(table(df$Size))
+ggplot(data=df, aes(x= Size, fill = Size)) +
+  geom_bar()+
+  geom_text(aes(Var1, Freq +150, label = Freq, fill = NULL), data = totals)
+```
+
+#### Separate Data into training and testing (80% train, 20% test)
+
+```{r}
+set.seed(123)
+train <- df %>%
+  group_by(Size) %>%
+  sample_frac(0.8) %>%
+  ungroup()
+train = as.data.frame(train)
+
+x <- rbind(df, train)
+test <- x[!duplicated(x, fromLast=TRUE) & seq(nrow(x)) <= nrow(df),]
+
+c(nrow(df),nrow(train),nrow(test))
+```
+
+## Linear Discriminant Analysis
+
+#### Using 'Size' variable as the dependent categorical variable to be predicted. 
+
+```{r}
+lda_m = lda(Size~FallMembership_16_17+RevenueStateSources_16_17+RevenueFederalSources_16_17+TotalStudentsAllGrades+Asian_AsianPacificIsl+Hispanic+Black+White, data=train)
+lda_m
+```
+
+#### Confusion matrix and  **testing error rate** based on the classification.
+
+```{r}
+pred.lda = predict(lda_m, newdata=test)
+table(Predictions=pred.lda$class, "True Values"=test$Size)
+
+lda.error <- 1- mean(test$Size==pred.lda$class)
+lda.error
+```
+
+#### Explanation of LDA over logistic regression, and communication of results. 
+    
+We implemented a linear discriminant analysis rather than a logistic regression because logistic regression is usually used for binary predictions; more than two response classes can lead to unstable estimates, therefore, we opted for an LDA. Linear discriminant analysis classifies observations by observing prior (training) and posterior (test) probabilities $\pi_k$ and $P_k(X)$ respectively. The LDA model classifies observations to the class for which $P_k(X)$ is the largest; in other words, it assigns a given observation $X$ to be equal to $x$, the class which has the highest probability. 
+
+This LDA model classified locale with about a 50% testing error rate; generally speaking, this is a fairly poor performance for a classification model. Another important note is that this model failed to classify a single locale as "Town", either correctly or incorrectly. Even if this model did result in a lower testing error rate than the following models, failing to consider an entire classification level could lead to some major errors in classification later on.
+
+## KNN 
+
+```{r}
+#using same variables as LDA
+knn.train=train[,c(8,9,19,21,22,23,24)]
+knn.test=test[,c(8,9,19,21,22,23,24)]
+
+knn.trainLabels=as.factor(train$Size)
+knn.testLabels=as.factor(test$Size)
+
+#finding optimal K-value
+set.seed(123)
+k.grid=1:100
+error=rep(0, length(k.grid))
+
+for (i in seq_along(k.grid)) {
+  pred = class::knn(train = scale(knn.train), 
+             test  = scale(knn.test), 
+             cl    = knn.trainLabels, 
+             k     = k.grid[i])
+  error[i] = mean(knn.testLabels !=pred)
+}
+
+min(error)
+which.min(error)
+
+plot(error, type = "b", cex = 1, pch = 20, 
+     xlab = "k", ylab = "Error")
+abline(h = min(error), col = "red", lty = 5)
+
+pred.knn <- class::knn(train = knn.train, test = knn.test, cl = knn.trainLabels, k=which.min(error))
+```
+
+#### Confusion matrix and testing error rate.
+
+```{r}
+table(Predictions=pred.knn, "True Values"=knn.testLabels)
+
+knn.error <- 1-mean(pred.knn==knn.testLabels)
+knn.error
+```
+
+#### KNN results.
+
+K-Nearest Neighbor classification operates on the idea that similar things exist within close proximity to each other. K is a hyperparameter of this model which determines how many of the nearest observations to base its classification on. For example, a k-value of 1 means that for each point in the test data, the model will calculate the distance between each point and each observation from the training data and choose the single lowest distance to a training observation to base its classification on. A k-value of 5 will have the model calculate the same distances as before, now sorting those distances in ascending order and selecting the 5 observations with the lowest distances to base its classification on.
+
+We can use cross-validation techniques to find the optimal k-value which produces the lowest testing error rate of the model. In this case, the optimal k-value is 25 which results in a testing error rate of 46.34%. While this is a slightly better performance than the LDA model, it is still not a very accurate model. Additionally, a relatively high k-value of 25 increases computational expense, bias, and the boundaries between classes become less distinct.
+
+## Part 4: Tree Based Model (15 points)
+
+#### Applied the following: *Classification Tree, Random Forest, Bagging or Boosting*
+
+```{r MODELS NOT USED, eval=FALSE, include=FALSE}
+#We created all four of these tree-based models and only included the model with the lowest testing error rate. Code for the three unused models is below, code for our final model for this section is located in the chunk after this one.
+
+#Random Tree/Classification Tree
+model.ct = rpart(Size~FallMembership_16_17+RevenueStateSources_16_17+RevenueFederalSources_16_17+TotalStudentsAllGrades+Asian_AsianPacificIsl+Hispanic+Black+White, train, method="class", parms=list(split="gini"))
+model.ct
+rpart.plot(x = model.ct, yesno = 2, type = 2, extra = 1)
+
+#pruned tree using cross validation
+plotcp(model.ct)
+cp_opt <- model.ct$cptable[which.min(model.ct$cptable[, "xerror"]), "CP"]
+model.ct_opt <- prune(tree = model.ct, cp = cp_opt)
+model.ct_opt
+rpart.plot(x = model.ct_opt, yesno = 2, type = 5, extra = 1, legend.y=1.06)
+rpart.plot(x = model.ct_opt, yesno = 2, type = 5, extra = 4)
+
+pred.tree=predict(model.ct, newdata=test, type="class")
+confusionMatrix(
+  factor(pred.tree),
+  factor(test$Size)
+)
+
+tree.accuracy <- mean(test$Size==pred.tree)
+tree.accuracy
+
+
+#Bagging Algorithm
+set.seed(123)
+model.bag=bagging(factor(Size)~FallMembership_16_17+RevenueStateSources_16_17+RevenueFederalSources_16_17+TotalStudentsAllGrades+Asian_AsianPacificIsl+Hispanic+Black+White, data=train, coob = TRUE)
+print(model.bag)
+
+pred.bag = predict(model.bag,newdata=test, type = "class")
+
+confusionMatrix(factor(pred.bag),
+                factor(test$Size))
+bagging.accuracy <- mean(test$Size==pred.bag)
+bagging.accuracy
+
+ctrl <- trainControl(method = "cv", number = 5) 
+set.seed(123)  
+caret_model <- train(factor(Size)~FallMembership_16_17+RevenueStateSources_16_17+RevenueFederalSources_16_17+TotalStudentsAllGrades+Asian_AsianPacificIsl+Hispanic+Black+White,
+                            data = train, 
+                            method = "treebag",
+                            trControl = ctrl)
+vip(caret_model)
+
+#Boosting Algorithm
+set.seed(123)
+model.boos <- gbm(formula = factor(Size)~FallMembership_16_17+RevenueStateSources_16_17+RevenueFederalSources_16_17+TotalStudentsAllGrades+Asian_AsianPacificIsl+Hispanic+Black+White, distribution="multinomial", data=train, n.trees = 10000)
+
+print(model.boos)
+
+summary(model.boos)
+
+pred.boost=predict(model.boos, newdata=test,n.trees=10000, distribution="multinomial", type="response")
+
+head(pred.boost)
+
+boost.pred.df <- as.data.frame(pred.boost)
+colnames(boost.pred.df) = c("City", "Rural", "Suburb", "Town")
+
+boost.pred.df[] <- t(apply(boost.pred.df, 1, function(x) replace(x, x!= max(x, na.rm = TRUE), 0)))
+
+w <- which(boost.pred.df!="0",arr.ind=TRUE)
+boost.pred.df[w] <- colnames(boost.pred.df)[w[,"col"]]
+
+head(boost.pred.df)
+
+boost.pred.vector <- as.vector(t(boost.pred.df)[t(boost.pred.df)!=0])
+
+head(boost.pred.vector)
+
+accuracy(test[,"Size"], boost.pred.vector)
+
+confusionMatrix(factor(test[,"Size"]), factor(boost.pred.vector))
+##Optimizing Boosting parameters
+ntree.oob.opt=gbm.perf(model.boos, method="OOB", oobag.curve=TRUE)
+
+model.boos.cv <- gbm(factor(Size)~FallMembership_16_17+RevenueStateSources_16_17+RevenueFederalSources_16_17+TotalStudentsAllGrades+Asian_AsianPacificIsl+Hispanic+Black+White, 
+                       distribution = "multinomial", 
+                       train,n.trees = 10000,
+                       cv.folds = 3)
+ntree.cv.opt=gbm.perf(model.boos.cv, method="cv")
+
+print(paste0("Optimal ntrees (OOB Estimate): ", ntree.oob.opt))                         
+print(paste0("Optimal ntrees (CV Estimate): ", ntree.cv.opt))
+
+pred.1=predict(object = model.boos, 
+                  newdata = test,
+                  n.trees = ntree.oob.opt)
+pred.2=predict(object = model.boos.cv, 
+                  newdata = test,
+                  n.trees = ntree.cv.opt)
+
+df1 <- as.data.frame(pred.1)
+colnames(df1) = c("City", "Rural", "Suburb", "Town")
+
+df1[] <- t(apply(df1, 1, function(x) replace(x, x!= max(x, na.rm = TRUE), 0)))
+
+w <- which(df1!="0",arr.ind=TRUE)
+df1[w] <- colnames(df1)[w[,"col"]]
+
+head(df1)
+
+v1 <- as.vector(t(df1)[t(df1)!=0])
+
+head(v1)
+
+df2 <- as.data.frame(pred.2)
+colnames(df2) = c("City", "Rural", "Suburb", "Town")
+
+df2[] <- t(apply(df2, 1, function(x) replace(x, x!= max(x, na.rm = TRUE), 0)))
+
+w <- which(df2!="0",arr.ind=TRUE)
+df2[w] <- colnames(df2)[w[,"col"]]
+
+head(df2)
+
+v2 <- as.vector(t(df2)[t(df2)!=0])
+
+head(v2)
+
+1-accuracy(test[,"Size"], v1)
+1-accuracy(test[,"Size"], v2)
+
+confusionMatrix(factor(test[,"Size"]), factor(v2))
+
+```
+
+```{r}
+model.rf=randomForest(factor(Size)~FallMembership_16_17+RevenueStateSources_16_17+RevenueFederalSources_16_17+TotalStudentsAllGrades+Asian_AsianPacificIsl+Hispanic+Black+White, data = train, importance=TRUE,proximity=TRUE)
+print(model.rf)
+
+#parameter optimization
+plot(model.rf)
+#ntree=120
+
+mtry.rf = tuneRF(x = train[,c(8,9,19,21,22,23,24)],
+              y = factor(train$Size),
+              ntreeTry = 120)
+
+mtry_opt <- mtry.rf[,"mtry"][which.min(mtry.rf[,"OOBError"])]
+print(mtry_opt)
+#mtry=2
+
+model.rf=randomForest(factor(Size)~FallMembership_16_17+RevenueStateSources_16_17+RevenueFederalSources_16_17+TotalStudentsAllGrades+Asian_AsianPacificIsl+Hispanic+Black+White, data = train, importance=TRUE,proximity=TRUE,ntree=120,mtry=2)
+print(model.rf)
+```
+
+#### Confusion matrix and testing error rate based of random forest model. 
+
+```{r}
+pred.rf= predict(model.rf, newdata = test, type = "class")
+confusionMatrix(data = pred.rf, reference = as.factor(test$Size))
+
+forest.error <- 1-mean(test$Size==pred.rf)
+forest.error
+```
+
+#### Explanation of random forest model selection over other tree based models. 
+
+After testing all four tree-based models, we chose to include the random forest model because it had the lowest testing error rate of the four models. Random forest models are an ensemble method similar to bagging, but with better performance. The random forest model selects a defined number of classification trees to create using the training data, generates a bootstrapped sample for $i=1:n$ trees, then grows a classification tree to that bootstrapped data. Every time a split is considered, a random selection of $m$ predictors is chosen at each split candidate from the full set of $p$ predictors; this is where random forest differs from the bagging method. While bagging considers all predictors at each split, the random forest only considers a subset of those predictors, which leads to better performance and reduces tree correlation by inducing some randomness into the tree-growing process.
+
+As previously stated, our random forest model had the lowest testing error rate of the four models, with an error rate of 31.46%. Even after using cross-validation to optimize hyperparameters "ntree" (# of trees grown in a forest) and "mtry" (how many variables are chosen), this was the lowest error rate possible. While this model has demonstrated the best performance thus far, a 31% error rate is still not acceptable were this model to be implemented.
+
+## SVM
+
+```{r}
+train_svm <- train
+test_svm <- test
+
+svm_model<- svm(factor(Size)~FallMembership_16_17+RevenueStateSources_16_17+RevenueFederalSources_16_17+TotalStudentsAllGrades+Asian_AsianPacificIsl+Hispanic+Black+White, data = train_svm, type = "C-classification", kernel = "radial", scale = TRUE, cost=0.1)
+svm_model
+```
+
+#### Confusion matrix using the testing data.
+
+```{r}
+#re-estimating model using hyperparameter optimization
+set.seed(123)
+tune.radial=tune(svm, factor(Size)~FallMembership_16_17+RevenueStateSources_16_17+RevenueFederalSources_16_17+TotalStudentsAllGrades+Asian_AsianPacificIsl+Hispanic+Black+White, data=train,
+                 kernel ="radial", 
+                 type = "C-classification",
+                 ranges =list(cost=c(0.1,1,10,100, 1000),
+                              gamma=c(0.5,1,2,3,4)))
+summary(tune.radial)
+
+bestmod=tune.radial$best.model
+
+pred_test1=predict(svm_model, test_svm)
+pred_test2=predict(bestmod, test_svm)
+svm.error1 <- 1-mean(pred_test1 == test_svm$Size)
+svm.error2 <- 1-mean(pred_test2 == test_svm$Size)
+
+table(pred=predict(tune.radial$best.model ,
+newdata=train),true=train$Size)
+```
+
+#### Explanation of SVM and results. 
+
+A Support Vector Machine, or SVM, is a supervised machine learning algorithm generally used for classification or regression. This model creates a line or hyperplane to separate the data into different classes. SVM generally requires optimal tuning of its hyperparameters to obtain the best predictive performance. Because we specified a radial kernel for this model, our hyperparameters are cost and $\gamma$. We can find these optimal values using the tune() function and providing a list of potential values for these hyperparameters.
+
+The SVM model performed similarly to the random forest model, but with a slightly higher testing error rate of 33.55%; this can be compared to the testing error rate of the SVM model without hyperparameter optimization which was 44.21%. While this is a significant improvement relative to the SVM, it still under-performs compared to the random forest model. Additionally, the SVM is much more computationally expensive than the random forest and the model takes much longer to estimate, especially when using cross-validation to test different hyperparameter values.
+
+## Part 6: Conclusion (20 points)
+
+1. (10 points) Based on the different classification models, which one do you think is the best model to predict `y`? Please consider the following in your response:
+
+```{r}
+TestError = data.frame(lda.error, knn.error, forest.error, svm.error2)
+TestError=round(TestError, 4)
+colnames(TestError) = c("LDA", "KNN", "Random Forest", "SVM")
+rownames(TestError) = "Testing Error"
+kable(TestError, format.args = list(big.mark = ","), caption = "Comparing Testing Error Rates Between Classification Models") %>%
+    kable_styling("striped")
+```
+
+In comparing the testing error rate of each classification model, we found that the random forest model had the lowest testing rate, and therefore, was the most accurate predictor of school locale based on the predictor variables of this dataset. While it hold the lowest error rate (31.46%), that error rate is still over 30%, which leaves much room for improvement. The addition of external data may aid in these models' respective accuracies; some data whose incorporation may yield interesting results could include the graduation rate of each school, job placement rates, population data on the town/city in which the school is located. This data may provide more insight into the institution and lead to more accurate classifications.
+
+
